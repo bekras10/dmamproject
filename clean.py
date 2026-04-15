@@ -99,8 +99,11 @@ def clean_player_stats(raw: pd.DataFrame, schedules_raw: pd.DataFrame) -> pd.Dat
 
     # ── Rename columns to match schema ────────────────────────────────────
     df = df.rename(columns={
-        "game_id": "match_id",
-        "xa":      "xa",
+        "game_id":    "match_id",
+        "xG":         "xg",
+        "xA":         "xa",
+        "xGChain":    "xg_chain",
+        "xGBuildup":  "xg_buildup",
     })
 
     # Convert IDs to strings (schema uses TEXT)

@@ -87,10 +87,14 @@ def run_tests(conn: sqlite3.Connection) -> list[str]:
             f"SELECT AVG({col}), MAX({col}) FROM player_match_stats WHERE {col} IS NOT NULL",
         )
         avg_val, max_val = cur.fetchone()
-        if avg_val is not None:
+        if max_val is None:
+            logger.info("  %s — all values are NULL", col)
+            failures.append(f"All {col} values are NULL")
+        elif float(max_val) == 0.0:
             logger.info("  %s — avg: %.4f,  max: %.4f", col, avg_val, max_val)
-        if max_val is not None and float(max_val) == 0.0:
             failures.append(f"All {col} values are zero")
+        else:
+            logger.info("  %s — avg: %.4f,  max: %.4f", col, avg_val, max_val)
 
     # ── 6. Distribution by league ────────────────────────────────────────
     logger.info("  Distribution by league:")
