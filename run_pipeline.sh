@@ -30,20 +30,28 @@ echo " PIPELINE START  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "=========================================="
 
 echo ""
-echo "[1/4] Initializing database..."
+echo "[1/6] Initializing database..."
 python3 init_db.py
 
 echo ""
-echo "[2/4] Scraping FBRef data..."
+echo "[2/6] Scraping FBRef data..."
 python3 scrape.py "$@"
 
 echo ""
-echo "[3/4] Cleaning and loading data..."
+echo "[3/6] Cleaning and loading data..."
 python3 clean.py
 
 echo ""
-echo "[4/4] Validating data integrity..."
+echo "[4/6] Validating data integrity..."
 python3 test_db.py || echo "WARNING: Some integrity checks failed — see logs/test.log"
+
+echo ""
+echo "[5/6] Computing form factor rankings..."
+python3 analysis.py
+
+echo ""
+echo "[6/6] Generating visualizations and insights..."
+python3 visualize_insights.py
 
 echo ""
 echo "=========================================="

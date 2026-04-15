@@ -1,11 +1,11 @@
-# Soccer Player Form Analytics — Data Pipeline
+# Soccer Player Form Analytics Pipeline
 
-Automated ETL pipeline that scrapes per-player, per-match statistics from
-[Understat](https://understat.com/) (via the
+Automated ETL + analytics pipeline that scrapes per-player, per-match
+statistics from [Understat](https://understat.com/) (via the
 [soccerdata](https://soccerdata.readthedocs.io/) library), cleans and
-normalizes the data, and loads it into a local SQLite database.  Designed for
-a soccer player **"form" analytics** project that quantifies recent player
-performance using a time-decaying rolling average of xG and xA.
+normalizes the data, loads it into a local SQLite database, computes a
+recency-weighted **Form Factor**, and generates presentation-ready
+visualizations and insight summaries.
 
 > **Why Understat instead of FBRef?**  In January 2026, FBRef's advanced data
 > provider terminated their agreement and all xG/xA data was
@@ -48,17 +48,21 @@ pip install -r requirements.txt
 ## Project Structure
 
 ```
-├── config.py            # Paths, leagues, seasons
-├── init_db.py           # SQLite schema creation
-├── scrape.py            # Data extraction from Understat
-├── clean.py             # Data cleaning + UPSERT into SQLite
-├── run_pipeline.sh      # Pipeline orchestration (the only script you run)
-├── test_db.py           # Data integrity validation
-├── requirements.txt     # Python dependencies
+├── config.py                # Paths, leagues, seasons
+├── init_db.py               # SQLite schema creation
+├── scrape.py                # Data extraction from Understat
+├── clean.py                 # Data cleaning + UPSERT into SQLite
+├── test_db.py               # Data integrity validation
+├── analysis.py              # Form Factor + Season Baseline computation
+├── visualize_insights.py    # Insight synthesis + chart generation
+├── run_pipeline.sh          # Pipeline orchestration (the only script you run)
+├── requirements.txt         # Python dependencies
 ├── data/
-│   ├── raw/             # Raw CSV snapshots from scraping
-│   └── soccer_stats.db  # SQLite database (created at runtime)
-└── logs/                # Timestamped pipeline logs
+│   ├── raw/                 # Raw CSV snapshots from scraping
+│   ├── soccer_stats.db      # SQLite database (created at runtime)
+│   ├── form_factor.csv      # Form Factor rankings (created by analysis.py)
+│   └── charts/              # PNG visualizations (created by visualize_insights.py)
+└── logs/                    # Timestamped pipeline logs
 ```
 
 ---
@@ -71,6 +75,8 @@ pip install -r requirements.txt
 | 2 | `scrape.py` | Fetches schedules + player match stats from Understat, saves raw CSVs |
 | 3 | `clean.py` | Normalizes names, handles NaN, enriches with opponent/home-away, UPSERTs into DB |
 | 4 | `test_db.py` | Validates no NULLs in keys, no duplicates, sane date ranges, non-zero xG/xA |
+| 5 | `analysis.py` | Computes Form Factor, Season Baseline, and delta/pct\_change; exports `data/form_factor.csv` |
+| 6 | `visualize_insights.py` | Reads `form_factor.csv`, identifies overperformers/underperformers, prints talking points, generates charts to `data/charts/` |
 
 ---
 
@@ -134,7 +140,46 @@ form metric query.
 
 ---
 
-## Querying the Database (for Track B / Analytics)
+## Form Factor
+
+The core metric is a recency-weighted rolling average over a player's last 5
+matches:
+
+$$Form = \sum_{k=1}^{5} w_k \cdot (xG_{t-k} + xA_{t-k})$$
+
+| k (most recent → oldest) | 1 | 2 | 3 | 4 | 5 |
+|---------------------------|------|------|------|------|------|
+| Weight | 0.35 | 0.25 | 0.20 | 0.12 | 0.08 |
+
+`analysis.py` computes this for every player and also calculates a **Season
+Baseline** (simple average xG + xA across all matches).  The comparison
+between Form Factor and Season Baseline drives the insight synthesis:
+
+- **High-Form Overperformers** — Form Factor >= 50% above Season Baseline
+- **Slumping Stars** — top-quartile baseline players whose Form Factor dropped >= 30% below their baseline
+
+---
+
+## Visualizations
+
+`visualize_insights.py` reads from `data/form_factor.csv` (produced by
+`analysis.py`) and generates three charts in `data/charts/`:
+
+| Chart | File | Description |
+|-------|------|-------------|
+| Top 15 Form Leaders | `top15_form_leaders.png` | Horizontal bar chart, colour-coded by league |
+| Form vs. Baseline | `form_vs_baseline.png` | Scatter plot with y=x reference line; overperformers (green) and slumping stars (red) labelled |
+| Player Trend | `trend_<name>_<id>.png` | Match-by-match xG+xA line with weighted rolling form overlay and season average |
+
+To generate a trend chart for a specific player:
+
+```bash
+python visualize_insights.py --player 1250
+```
+
+---
+
+## Querying the Database
 
 ```python
 import sqlite3
@@ -142,7 +187,7 @@ import pandas as pd
 
 conn = sqlite3.connect("data/soccer_stats.db")
 
-# Last 5 matches for a player (for form metric calculation)
+# Last 5 matches for a player
 df = pd.read_sql("""
     SELECT player_id, player_name, match_date, xg, xa
     FROM player_match_stats
@@ -151,10 +196,6 @@ df = pd.read_sql("""
     LIMIT 5
 """, conn)
 ```
-
-**Form metric (Track B computes this):**
-
-$$Form = \sum_{k=1}^{5} w_k \cdot (xG_{t-k} + xA_{t-k})$$
 
 ---
 
@@ -182,3 +223,5 @@ Add this line (replace the path with your actual project path):
 | Rate limiting | Understat is lenient, but if requests fail, wait 10 min and retry. |
 | Missing raw data | Check `logs/scrape.log` for per-match error details. |
 | Test failures | Check `logs/test.log`; most failures indicate data quality issues upstream. |
+| `form_factor.csv not found` | Run `python analysis.py` (or the full pipeline) before `visualize_insights.py`. |
+| Charts look different after re-scrape | Expected — Form Factor is based on each player's latest 5 matches, so it updates as new data arrives. |
